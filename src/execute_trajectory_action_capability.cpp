@@ -119,27 +119,34 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     ros::Rate r(20);
     std::size_t wpc = t.getWayPointCount();
     std::pair<int, int> path_segment;
-    while(node_handle_.ok() && execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
+    try
     {
-      r.sleep();
-      path_segment = context_->trajectory_execution_manager_->getCurrentExpectedTrajectoryIndex();
-      for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 2, int(wpc)); ++i)
+      while(node_handle_.ok() && execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
       {
-        if (path_segment.second == -1)
-          break;
-        collision_detection::CollisionResult res;
-        // planning_scene->checkCollisionUnpadded(req, res);
-        planning_scene->checkCollisionUnpadded(req, res, t.getWayPoint(i));
-        if (res.collision)
+        path_segment = context_->trajectory_execution_manager_->getCurrentExpectedTrajectoryIndex();
+        for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 2, int(wpc)); ++i)
         {
-          ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
-          context_->trajectory_execution_manager_->stopExecution();
-          execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
+          planning_scene_monitor::LockedPlanningSceneRO lscene(context_->planning_scene_monitor_);
+          if (path_segment.second == -1)
+            break;
+          collision_detection::CollisionResult res;
+          // planning_scene->checkCollisionUnpadded(req, res, t.getWayPoint(i));
+          planning_scene->checkCollision(req, res, t.getWayPoint(i));
+          if (res.collision)
+          {
+            ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
+            context_->trajectory_execution_manager_->stopExecution();
+            execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
+          }
         }
+        r.sleep();
       }
     }
+    catch (...)
+    {
+      ROS_ERROR("!!!!!!!Collision detected during execution Failed!!!!!!!");
+    }
     moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
-    
     if (execute_status_ == moveit_controller_manager::ExecutionStatus::SUCCEEDED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
