@@ -116,7 +116,7 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     robot_state::RobotState start(planning_scene->getCurrentState());
     // robot_state::robotStateMsgToRobotState(planning_scene->getTransforms(), start_state, start);
     t.setRobotTrajectoryMsg(start, goal->trajectory);
-    ros::Rate r(20);
+    ros::Rate r(40);
     std::size_t wpc = t.getWayPointCount();
     std::pair<int, int> path_segment;
     try
@@ -124,7 +124,7 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
       while(node_handle_.ok() && execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
       {
         path_segment = context_->trajectory_execution_manager_->getCurrentExpectedTrajectoryIndex();
-        for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 2, int(wpc)); ++i)
+        for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 10, int(wpc)); ++i)
         {
           planning_scene_monitor::LockedPlanningSceneRO lscene(context_->planning_scene_monitor_);
           if (path_segment.second == -1)
