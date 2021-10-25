@@ -110,43 +110,43 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     trajectory_execution_manager::TrajectoryExecutionManager::ExecutionCompleteCallback execution_callback;
     execution_callback = MoveGroupExecuteTrajectoryActionT::executeCallback;
     context_->trajectory_execution_manager_->execute(execution_callback);
+
     planning_scene::PlanningSceneConstPtr planning_scene = context_->planning_scene_monitor_->getPlanningScene();
-    collision_detection::CollisionRequest req;
     robot_trajectory::RobotTrajectory t(planning_scene->getRobotModel(), "");
-    robot_state::RobotState start(planning_scene->getCurrentState());
-    // robot_state::robotStateMsgToRobotState(planning_scene->getTransforms(), start_state, start);
-    t.setRobotTrajectoryMsg(start, goal->trajectory);
-    ros::Rate r(40);
+    // robot_state::RobotState start(planning_scene->getCurrentState());
+    t.setRobotTrajectoryMsg(planning_scene->getCurrentState(), goal->trajectory);
+    ros::Rate r(30);
     std::size_t wpc = t.getWayPointCount();
     std::pair<int, int> path_segment;
+    ros::Time start_time;
     try
     {
       while(node_handle_.ok() && execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
       {
-        path_segment = context_->trajectory_execution_manager_->getCurrentExpectedTrajectoryIndex();
-        for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 10, int(wpc)); ++i)
-        {
-          planning_scene_monitor::LockedPlanningSceneRO lscene(context_->planning_scene_monitor_);
-          if (path_segment.second == -1)
-            break;
-          collision_detection::CollisionResult res;
-          // planning_scene->checkCollisionUnpadded(req, res, t.getWayPoint(i));
-          planning_scene->checkCollision(req, res, t.getWayPoint(i));
-          if (res.collision)
-          {
-            ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
-            context_->trajectory_execution_manager_->stopExecution();
-            execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
-          }
-        }
         r.sleep();
+        // start_time = ros::Time::now();
+        planning_scene_monitor::LockedPlanningSceneRO lscene(context_->planning_scene_monitor_);
+
+        path_segment = context_->trajectory_execution_manager_->getCurrentExpectedTrajectoryIndex();
+        if(path_segment.second == -1)
+          break;
+        std::size_t way_point_indx = std::min(std::size_t(path_segment.second), wpc - 1);
+
+        if(!checkWayPointCollision(way_point_indx, planning_scene, t))
+        {
+          ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
+          context_->trajectory_execution_manager_->stopExecution();
+          execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
+          break;
+        }
       }
     }
     catch (...)
     {
       ROS_ERROR("!!!!!!!Collision detected during execution Failed!!!!!!!");
     }
-    moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
+    // moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
+    execute_status_ = context_->trajectory_execution_manager_->waitForExecution();
     if (execute_status_ == moveit_controller_manager::ExecutionStatus::SUCCEEDED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
@@ -169,6 +169,62 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
   {
     action_res.error_code.val = moveit_msgs::MoveItErrorCodes::CONTROL_FAILED;
   }
+}
+
+bool MoveGroupExecuteTrajectoryActionT::checkWayPointCollision(std::size_t way_point_indx, planning_scene::PlanningSceneConstPtr planning_scene, robot_trajectory::RobotTrajectory& t)
+{
+  std::size_t wpc = t.getWayPointCount();
+  robot_state::RobotState start_state(planning_scene->getCurrentState());
+  robot_state::RobotState collision_detect_state(start_state);
+  robot_state::RobotState next_waypoint_state(t.getWayPoint(way_point_indx));
+  collision_detection::CollisionRequest req;
+  collision_detection::CollisionResult res;
+  double state_distance = start_state.distance(next_waypoint_state);
+  double max_detect_ang = 0;
+  double tmp_detect_ang = 0;
+  double interpolate_time = 0;
+
+  for(std::size_t joints_indx=0; joints_indx<std::min(start_state.getVariableCount(), std::size_t(3)); joints_indx++)
+    max_detect_ang += start_state.getVariableVelocity(joints_indx);
+  max_detect_ang = std::min(std::max(max_detect_ang / 2, M_PI / 6), M_PI / 2);
+
+  for(double detect_ang = 0; detect_ang < max_detect_ang; detect_ang += M_PI / 60)
+  {
+    interpolate_time = ((detect_ang - tmp_detect_ang)<= state_distance && state_distance > 0.1) ? (detect_ang - tmp_detect_ang) / state_distance : 1;
+    // std::cout<<"interpolate_time = "<<interpolate_time<<", state_distance = "<<state_distance<<", detect_ang = "<<detect_ang<<", max_detect_ang = "<<max_detect_ang<<std::endl;
+    start_state.interpolate(next_waypoint_state, interpolate_time, collision_detect_state);
+    planning_scene->checkCollision(req, res, collision_detect_state);
+    if (res.collision)
+      return false;
+    
+    if(detect_ang >= state_distance)
+    {
+      if(way_point_indx >= wpc - 1)
+        break;
+      tmp_detect_ang = detect_ang;
+      way_point_indx = std::min(way_point_indx + 1, wpc - 1);
+      start_state = next_waypoint_state;
+      next_waypoint_state = t.getWayPoint(way_point_indx);
+      state_distance = start_state.distance(next_waypoint_state);
+    }
+  }
+  return true;
+
+  // for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 10, int(wpc)); ++i)
+  // {
+  //   start_time = ros::Time::now();
+  //   if (path_segment.second == -1)
+  //     break;
+  //   collision_detection::CollisionResult res;
+  //   planning_scene->checkCollision(req, res, t.getWayPoint(i));
+  //   if (res.collision)
+  //   {
+  //     ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
+  //     context_->trajectory_execution_manager_->stopExecution();
+  //     execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
+  //   }
+  //   std::cout<<"Collision check spend "<<(ros::Time::now() - start_time).toSec() * 1000<<" ms. "<<t.getWayPoint(i).hasVelocities()<<" waypoint "<<i<<" velocity is "<<*t.getWayPoint(i).getVariableVelocities()<<std::endl;
+  // }
 }
 
 void MoveGroupExecuteTrajectoryActionT::preemptExecuteTrajectoryCallback()

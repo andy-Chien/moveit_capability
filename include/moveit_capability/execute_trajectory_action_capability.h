@@ -65,6 +65,7 @@ private:
                    moveit_msgs::ExecuteTrajectoryResult& action_res);
   void preemptExecuteTrajectoryCallback();
   void setExecuteTrajectoryState(MoveGroupState state);
+  bool checkWayPointCollision(std::size_t way_point_indx, planning_scene::PlanningSceneConstPtr planning_scene, robot_trajectory::RobotTrajectory& t);
 
 
   // trajectory_execution_manager::TrajectoryExecutionManager::ExecutionCompleteCallback execution_callback;
