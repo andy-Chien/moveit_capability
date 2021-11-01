@@ -146,7 +146,9 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
       ROS_ERROR("!!!!!!!Collision detected during execution Failed!!!!!!!");
     }
     // moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
-    execute_status_ = context_->trajectory_execution_manager_->waitForExecution();
+    if(execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
+      execute_status_ = context_->trajectory_execution_manager_->waitForExecution();
+    
     if (execute_status_ == moveit_controller_manager::ExecutionStatus::SUCCEEDED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
@@ -158,6 +160,10 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     else if (execute_status_ == moveit_controller_manager::ExecutionStatus::TIMED_OUT)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::TIMED_OUT;
+    }
+    else if (execute_status_ == moveit_controller_manager::ExecutionStatus::FAILED)
+    {
+      action_res.error_code.val = moveit_msgs::MoveItErrorCodes::MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE;
     }
     else
     {
