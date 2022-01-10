@@ -39,6 +39,7 @@
 #include <moveit/trajectory_processing/trajectory_tools.h>
 #include <moveit/kinematic_constraints/utils.h>
 #include <moveit/move_group/capability_names.h>
+#include <moveit/robot_state/conversions.h>
 
 namespace move_group
 {
@@ -52,6 +53,7 @@ MoveGroupExecuteTrajectoryActionT::MoveGroupExecuteTrajectoryActionT() : MoveGro
 
 void MoveGroupExecuteTrajectoryActionT::initialize()
 {
+  private_nh_ = ros::NodeHandle();
   // start the move action server
   execute_action_server_.reset(new actionlib::SimpleActionServer<moveit_msgs::ExecuteTrajectoryAction>(
       root_node_handle_, EXECUTE_ACTION_NAME,
@@ -59,6 +61,7 @@ void MoveGroupExecuteTrajectoryActionT::initialize()
   execute_action_server_->registerPreemptCallback(
       boost::bind(&MoveGroupExecuteTrajectoryActionT::preemptExecuteTrajectoryCallback, this));
   execute_action_server_->start();
+  collision_robotstate_publisher_ = private_nh_.advertise<moveit_msgs::DisplayRobotState>("collision_robotstate", 1, true);
 }
 
 void MoveGroupExecuteTrajectoryActionT::executeCallback(const moveit_controller_manager::ExecutionStatus& status)
@@ -134,9 +137,9 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
 
         if(!checkWayPointCollision(way_point_indx, planning_scene, t))
         {
-          ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
+          ROS_WARN("!!!!!!Collision detected during execution!!!!!!");
           context_->trajectory_execution_manager_->stopExecution();
-          execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
+          execute_status_ = moveit_controller_manager::ExecutionStatus::ABORTED;
           break;
         }
       }
@@ -147,8 +150,10 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     }
     // moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
     if(execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
+    {
       execute_status_ = context_->trajectory_execution_manager_->waitForExecution();
-    
+      std::cout<<"!!!!execute_status_ = " << execute_status_.asString()<<std::endl;
+    }
     if (execute_status_ == moveit_controller_manager::ExecutionStatus::SUCCEEDED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
@@ -161,7 +166,7 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::TIMED_OUT;
     }
-    else if (execute_status_ == moveit_controller_manager::ExecutionStatus::FAILED)
+    else if (execute_status_ == moveit_controller_manager::ExecutionStatus::ABORTED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE;
     }
@@ -189,6 +194,7 @@ bool MoveGroupExecuteTrajectoryActionT::checkWayPointCollision(std::size_t way_p
   double max_detect_ang = 0;
   double tmp_detect_ang = 0;
   double interpolate_time = 0;
+  req.contacts = true;
 
   for(std::size_t joints_indx=0; joints_indx<std::min(start_state.getVariableCount(), std::size_t(3)); joints_indx++)
     max_detect_ang += start_state.getVariableVelocity(joints_indx);
@@ -200,8 +206,25 @@ bool MoveGroupExecuteTrajectoryActionT::checkWayPointCollision(std::size_t way_p
     // std::cout<<"interpolate_time = "<<interpolate_time<<", state_distance = "<<state_distance<<", detect_ang = "<<detect_ang<<", max_detect_ang = "<<max_detect_ang<<std::endl;
     start_state.interpolate(next_waypoint_state, interpolate_time, collision_detect_state);
     planning_scene->checkCollision(req, res, collision_detect_state);
+    
     if (res.collision)
-      return false;
+    {
+      for(auto it = res.contacts.begin(); it != res.contacts.end(); it++)
+      {
+        // for(auto vit = it->second.begin(); vit != it->second.end(); vit++)
+        //   std::cout<<vit->body_name_1<<", "<<vit->body_name_2<<std::endl;
+        if(!it->first.first.compare("<octomap>") || !it->first.second.compare("<octomap>"))
+        {
+          std::cout<<it->first.first<<", "<<it->first.second<<std::endl;
+          return false;
+        }
+      }
+      // moveit_msgs::DisplayRobotState display_state;
+      // moveit::core::robotStateToRobotStateMsg(collision_detect_state, display_state.state, true);
+      
+      // collision_robotstate_publisher_.publish(display_state);
+      
+    }
     
     if(detect_ang >= state_distance)
     {
