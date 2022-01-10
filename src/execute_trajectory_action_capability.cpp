@@ -150,10 +150,8 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     }
     // moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
     if(execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
-    {
       execute_status_ = context_->trajectory_execution_manager_->waitForExecution();
-      std::cout<<"!!!!execute_status_ = " << execute_status_.asString()<<std::endl;
-    }
+    
     if (execute_status_ == moveit_controller_manager::ExecutionStatus::SUCCEEDED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
