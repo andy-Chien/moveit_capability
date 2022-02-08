@@ -116,7 +116,6 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
 
     planning_scene::PlanningSceneConstPtr planning_scene = context_->planning_scene_monitor_->getPlanningScene();
     robot_trajectory::RobotTrajectory t(planning_scene->getRobotModel(), "");
-    // robot_state::RobotState start(planning_scene->getCurrentState());
     t.setRobotTrajectoryMsg(planning_scene->getCurrentState(), goal->trajectory);
     ros::Rate r(30);
     std::size_t wpc = t.getWayPointCount();
@@ -127,7 +126,6 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
       while(node_handle_.ok() && execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
       {
         r.sleep();
-        // start_time = ros::Time::now();
         planning_scene_monitor::LockedPlanningSceneRO lscene(context_->planning_scene_monitor_);
 
         path_segment = context_->trajectory_execution_manager_->getCurrentExpectedTrajectoryIndex();
@@ -148,10 +146,10 @@ void MoveGroupExecuteTrajectoryActionT::executePath(const moveit_msgs::ExecuteTr
     {
       ROS_ERROR("!!!!!!!Collision detected during execution Failed!!!!!!!");
     }
-    // moveit_controller_manager::ExecutionStatus status = context_->trajectory_execution_manager_->waitForExecution();
     if(execute_status_ == moveit_controller_manager::ExecutionStatus::RUNNING)
+    {
       execute_status_ = context_->trajectory_execution_manager_->waitForExecution();
-    
+    }
     if (execute_status_ == moveit_controller_manager::ExecutionStatus::SUCCEEDED)
     {
       action_res.error_code.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
@@ -201,7 +199,6 @@ bool MoveGroupExecuteTrajectoryActionT::checkWayPointCollision(std::size_t way_p
   for(double detect_ang = 0; detect_ang < max_detect_ang; detect_ang += M_PI / 60)
   {
     interpolate_time = ((detect_ang - tmp_detect_ang)<= state_distance && state_distance > 0.1) ? (detect_ang - tmp_detect_ang) / state_distance : 1;
-    // std::cout<<"interpolate_time = "<<interpolate_time<<", state_distance = "<<state_distance<<", detect_ang = "<<detect_ang<<", max_detect_ang = "<<max_detect_ang<<std::endl;
     start_state.interpolate(next_waypoint_state, interpolate_time, collision_detect_state);
     planning_scene->checkCollision(req, res, collision_detect_state);
     
@@ -209,19 +206,12 @@ bool MoveGroupExecuteTrajectoryActionT::checkWayPointCollision(std::size_t way_p
     {
       for(auto it = res.contacts.begin(); it != res.contacts.end(); it++)
       {
-        // for(auto vit = it->second.begin(); vit != it->second.end(); vit++)
-        //   std::cout<<vit->body_name_1<<", "<<vit->body_name_2<<std::endl;
         if(!it->first.first.compare("<octomap>") || !it->first.second.compare("<octomap>"))
         {
           std::cout<<it->first.first<<", "<<it->first.second<<std::endl;
           return false;
         }
       }
-      // moveit_msgs::DisplayRobotState display_state;
-      // moveit::core::robotStateToRobotStateMsg(collision_detect_state, display_state.state, true);
-      
-      // collision_robotstate_publisher_.publish(display_state);
-      
     }
     
     if(detect_ang >= state_distance)
@@ -236,22 +226,6 @@ bool MoveGroupExecuteTrajectoryActionT::checkWayPointCollision(std::size_t way_p
     }
   }
   return true;
-
-  // for (std::size_t i = std::max(path_segment.second - 1, 0); i < std::min(path_segment.second + 10, int(wpc)); ++i)
-  // {
-  //   start_time = ros::Time::now();
-  //   if (path_segment.second == -1)
-  //     break;
-  //   collision_detection::CollisionResult res;
-  //   planning_scene->checkCollision(req, res, t.getWayPoint(i));
-  //   if (res.collision)
-  //   {
-  //     ROS_INFO("!!!!!!Collision detected during execution!!!!!!");
-  //     context_->trajectory_execution_manager_->stopExecution();
-  //     execute_status_ = moveit_controller_manager::ExecutionStatus::FAILED;
-  //   }
-  //   std::cout<<"Collision check spend "<<(ros::Time::now() - start_time).toSec() * 1000<<" ms. "<<t.getWayPoint(i).hasVelocities()<<" waypoint "<<i<<" velocity is "<<*t.getWayPoint(i).getVariableVelocities()<<std::endl;
-  // }
 }
 
 void MoveGroupExecuteTrajectoryActionT::preemptExecuteTrajectoryCallback()
